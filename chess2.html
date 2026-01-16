@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chess</title>
+
+<style>
+body{
+  font-family:Arial;
+  text-align:center;
+  background:#00d9ff;
+  color:#000;
+}
+
+table{ border-collapse:collapse; margin:auto; }
+
+td{
+  width:80px;
+  height:80px;
+  font-size:42px;
+  cursor:pointer;
+  position:relative;
+}
+
+.light{background:#ffffff;}
+.dark{background:#eaf600;}
+
+.selected{outline:3px solid red;}
+
+.legal::after{
+  content:"";
+  width:14px;
+  height:14px;
+  background:rgba(0,0,0,.4);
+  border-radius:50%;
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+}
+
+.timer{margin:6px;font-size:18px;}
+</style>
+</head>
+
+<body>
+
+<h1>Chess</h1>
+
+<select id="mode">
+ <option value="pvp">Player vs Player</option>
+ <option value="ai">Player vs AI</option>
+</select>
+
+<button onclick="startGame()">Start / Restart</button>
+
+<div id="timers">
+ <div class="timer">White: <span id="wt">05:00</span></div>
+ <div class="timer">Black: <span id="bt">05:00</span></div>
+</div>
+
+<p id="status">Click Start</p>
+
+<table id="board"></table>
+
+<script>
+const pieces={
+ r:'♜',n:'♞',b:'♝',q:'♛',k:'♚',p:'♟',
+ R:'♖',N:'♘',B:'♗',Q:'♕',K:'♔',P:'♙'
+};
+
+const startBoard=[
+ ['r','n','b','q','k','b','n','r'],
+ ['p','p','p','p','p','p','p','p'],
+ ['','','','','','','',''],
+ ['','','','','','','',''],
+ ['','','','','','','',''],
+ ['','','','','','','',''],
+ ['P','P','P','P','P','P','P','P'],
+ ['R','N','B','Q','K','B','N','R']
+];
+
+let board,selected=null,legalMoves=[];
+let whiteTurn=true,game=true;
+let mode="pvp";
+let whiteTime=300,blackTime=300,timer=null;
+let lastMove=null;
+
+/* CASTLING FLAGS */
+let wk=false,bk=false,wrA=false,wrH=false,brA=false,brH=false;
+
+/* START */
+function startGame(){
+ board=JSON.parse(JSON.stringify(startBoard));
+ selected=null; legalMoves=[];
+ whiteTurn=true; game=true;
+ whiteTime=300; blackTime=300;
+ lastMove=null;
+
+ wk=bk=wrA=wrH=brA=brH=false;
+
+ mode=document.getElementById("mode").value;
+ clearInterval(timer);
+
+ if(mode==="pvp"){
+  document.getElementById("timers").style.display="block";
+  timer=setInterval(runTimer,1000);
+ }else{
+  document.getElementById("timers").style.display="none";
+ }
+
+ draw();
+ updateStatus();
+}
+
+/* TIMER */
+function runTimer(){
+ if(!game || mode!=="pvp") return;
+ if(whiteTurn) whiteTime--; else blackTime--;
+ updateTimers();
+ if(whiteTime<=0) endGame("Black wins on time!");
+ if(blackTime<=0) endGame("White wins on time!");
+}
+
+function updateTimers(){
+ document.getElementById("wt").textContent=format(whiteTime);
+ document.getElementById("bt").textContent=format(blackTime);
+}
+
+function format(t){
+ let m=Math.floor(t/60),s=t%60;
+ return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+/* DRAW */
+function draw(){
+ const b=document.getElementById("board");
+ b.innerHTML='';
+ for(let r=0;r<8;r++){
+  let tr=document.createElement("tr");
+  for(let c=0;c<8;c++){
+   let td=document.createElement("td");
+   td.className=(r+c)%2?'dark':'light';
+   if(selected&&selected.r===r&&selected.c===c) td.classList.add("selected");
+   if(legalMoves.some(m=>m.r===r&&m.c===c)) td.classList.add("legal");
+   td.textContent=pieces[board[r][c]]||'';
+   td.onclick=()=>click(r,c);
+   tr.appendChild(td);
+  }
+  b.appendChild(tr);
+ }
+}
+
+/* CLICK */
+function click(r,c){
+ if(!game) return;
+ if(mode==="ai"&&!whiteTurn) return;
+
+ let p=board[r][c];
+
+ if(selected){
+  let mv=legalMoves.find(m=>m.r===r&&m.c===c);
+  if(mv){
+   move(selected.r,selected.c,r,c);
+   selected=null; legalMoves=[];
+   draw();
+   if(mode==="ai"&&!whiteTurn) setTimeout(aiMove,400);
+   return;
+  }
+ }
+
+ if(p&&(whiteTurn?p===p.toUpperCase():p===p.toLowerCase())){
+  selected={r,c};
+  legalMoves=getLegalMoves(r,c);
+ }
+ draw();
+}
+
+/* MOVE */
+function move(fr,fc,tr,tc){
+ let piece=board[fr][fc];
+
+ /* EN PASSANT */
+ if(piece.toLowerCase()==='p' && tc!==fc && !board[tr][tc]){
+  board[fr][tc]='';
+ }
+
+ board[tr][tc]=piece;
+ board[fr][fc]='';
+
+ /* CASTLING ROOK MOVE */
+ if(piece.toLowerCase()==='k' && Math.abs(tc-fc)===2){
+  if(tc===6){ board[tr][5]=board[tr][7]; board[tr][7]=''; }
+  if(tc===2){ board[tr][3]=board[tr][0]; board[tr][0]=''; }
+ }
+
+ /* PROMOTION */
+ if(piece==='P'&&tr===0) board[tr][tc]='Q';
+ if(piece==='p'&&tr===7) board[tr][tc]='q';
+
+ /* UPDATE FLAGS */
+ if(piece==='K') wk=true;
+ if(piece==='k') bk=true;
+ if(piece==='R'&&fr===7&&fc===0) wrA=true;
+ if(piece==='R'&&fr===7&&fc===7) wrH=true;
+ if(piece==='r'&&fr===0&&fc===0) brA=true;
+ if(piece==='r'&&fr===0&&fc===7) brH=true;
+
+ lastMove={fr,fc,tr,tc,piece};
+ whiteTurn=!whiteTurn;
+
+ if(isCheck(whiteTurn)){
+  if(isMate(whiteTurn)){
+   endGame(whiteTurn?"Checkmate! Black wins!":"Checkmate! White wins!");
+   return;
+  }else{
+   document.getElementById("status").textContent="Check!";
+  }
+ }
+
+ updateStatus();
+}
+
+/* LEGAL MOVES */
+function getLegalMoves(r,c){
+ return getRaw(r,c).filter(m=>{
+  let t=board[m.r][m.c];
+  board[m.r][m.c]=board[r][c];
+  board[r][c]='';
+  let ok=!isCheck(whiteTurn);
+  board[r][c]=board[m.r][m.c];
+  board[m.r][m.c]=t;
+  return ok;
+ });
+}
+
+function getRaw(r,c){
+ let m=[],p=board[r][c];
+ let d=p===p.toUpperCase()?-1:1;
+ let enemy=x=>p===p.toUpperCase()?x===x.toLowerCase():x===x.toUpperCase();
+ let inB=(r,c)=>r>=0&&r<8&&c>=0&&c<8;
+
+ /* PAWN */
+ if(p.toLowerCase()==='p'){
+  if(inB(r+d,c)&&!board[r+d][c]) m.push({r:r+d,c});
+  if((r===6&&d==-1)||(r===1&&d==1))
+   if(!board[r+d][c]&&!board[r+2*d][c]) m.push({r:r+2*d,c});
+  [-1,1].forEach(dc=>{
+   if(inB(r+d,c+dc)&&board[r+d][c+dc]&&enemy(board[r+d][c+dc]))
+    m.push({r:r+d,c:c+dc});
+  });
+ }
+
+ /* KNIGHT */
+ if(p.toLowerCase()==='n'){
+  [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]]
+  .forEach(d2=>{
+   let nr=r+d2[0],nc=c+d2[1];
+   if(inB(nr,nc)&&(!board[nr][nc]||enemy(board[nr][nc])))
+    m.push({r:nr,c:nc});
+  });
+ }
+
+ function slide(dirs){
+  dirs.forEach(d2=>{
+   let nr=r+d2[0],nc=c+d2[1];
+   while(inB(nr,nc)){
+    if(!board[nr][nc]) m.push({r:nr,c:nc});
+    else{ if(enemy(board[nr][nc])) m.push({r:nr,c:nc}); break; }
+    nr+=d2[0]; nc+=d2[1];
+   }
+  });
+ }
+
+ if('rq'.includes(p.toLowerCase())) slide([[1,0],[-1,0],[0,1],[0,-1]]);
+ if('bq'.includes(p.toLowerCase())) slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+
+ /* KING + CASTLING (ONLY ONE KING BLOCK) */
+ if(p.toLowerCase()==='k'){
+  [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
+  .forEach(d2=>{
+   let nr=r+d2[0],nc=c+d2[1];
+   if(inB(nr,nc)&&(!board[nr][nc]||enemy(board[nr][nc])))
+    m.push({r:nr,c:nc});
+  });
+
+  if(p==='K' && !wk){
+   if(!wrH && !board[7][5] && !board[7][6]) m.push({r:7,c:6});
+   if(!wrA && !board[7][1] && !board[7][2] && !board[7][3]) m.push({r:7,c:2});
+  }
+
+  if(p==='k' && !bk){
+   if(!brH && !board[0][5] && !board[0][6]) m.push({r:0,c:6});
+   if(!brA && !board[0][1] && !board[0][2] && !board[0][3]) m.push({r:0,c:2});
+  }
+ }
+
+ return m;
+}
+
+/* CHECK */
+function isCheck(w){
+ let k=w?'K':'k',kr,kc;
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++)
+  if(board[r][c]===k){kr=r;kc=c;}
+
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  let p=board[r][c];
+  if(p&&(w?p===p.toLowerCase():p===p.toUpperCase()))
+   if(getRaw(r,c).some(m=>m.r===kr&&m.c===kc)) return true;
+ }
+ return false;
+}
+
+function isMate(w){
+ if(!isCheck(w)) return false;
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  let p=board[r][c];
+  if(p&&(w?p===p.toUpperCase():p===p.toLowerCase()))
+   if(getLegalMoves(r,c).length) return false;
+ }
+ return true;
+}
+
+/* AI */
+function aiMove(){
+ let moves=[];
+ for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+  let p=board[r][c];
+  if(p&&p===p.toLowerCase())
+   getLegalMoves(r,c).forEach(m=>moves.push({fr:r,fc:c,tr:m.r,tc:m.c}));
+ }
+ if(!moves.length) return;
+ let mv=moves[Math.floor(Math.random()*moves.length)];
+ move(mv.fr,mv.fc,mv.tr,mv.tc);
+ draw();
+}
+
+/* END */
+function endGame(msg){
+ document.getElementById("status").textContent=msg;
+ game=false;
+ clearInterval(timer);
+}
+
+function updateStatus(){
+ document.getElementById("status").textContent=
+  whiteTurn?"White to move":"Black to move";
+}
+</script>
+
+</body>
+</html>
